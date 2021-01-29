@@ -10,7 +10,8 @@
 #include <arpa/inet.h>
 #include "main.h"
 #include <map>
-
+#include <pthread.h>
+#include <unistd.h>
 
 
 
@@ -40,18 +41,22 @@ char* hex(u_int8_t *addr, char* buf, int size)
 }
 
 
-void consoleRefresh(){
+void* consoleRefresh(void* p){
 
-    system("clear");
-    printf("BSSID\t\t\tBeacons\t#Data\tENC\tESSID\n\n");
 
-    for(auto i : AP_List){
-        printf("%s\t%u\t%u\t%s\t%s\n", std::string(i.first).c_str(),
-               i.second.Beacons, i.second.nData, i.second.enc, i.second.ESSID);
+    while(true){
+        sleep(1);
+        system("clear");
+        printf("BSSID\t\t\tBeacons\t#Data\tENC\tESSID\n\n");
+
+        for(auto i : AP_List){
+            printf("%s\t%u\t%u\t%s\t%s\n", std::string(i.first).c_str(),
+                   i.second.Beacons, i.second.nData, i.second.enc, i.second.ESSID);
+        }
     }
 
+}
 
-};
 
 
 void callback(u_char *user ,const struct pcap_pkthdr* header, const u_char* pkt_data ){
@@ -126,7 +131,7 @@ void callback(u_char *user ,const struct pcap_pkthdr* header, const u_char* pkt_
                 AP_List.insert({bf_hdr->mac3,v});
             }
         }
-        consoleRefresh();
+
 
     }
 
@@ -152,6 +157,15 @@ int main(int argc, char* argv[]) {
     }
 
 
+    pthread_t p_thread;
+    int tid;
+    int stat;
+    if ((tid = pthread_create(&p_thread, NULL, consoleRefresh, (void*)NULL)) < 0)
+    {
+        perror("Failed to create pthread.");
+        exit(-1);
+    }
+    printf("started.");
 
     int ret = pcap_loop(handle, -1, callback, NULL );
     if (ret == -1 || ret == -2) {
@@ -162,7 +176,8 @@ int main(int argc, char* argv[]) {
     pcap_close(handle);
 
 
-
+    pthread_join(p_thread, (void **) &stat);
+    printf("Thread end stat : %d\n", stat);
 
 
 
