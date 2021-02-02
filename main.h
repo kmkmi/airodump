@@ -89,9 +89,9 @@ typedef struct Rtap{
 
 
 typedef struct Frame_Control_Field{
-    uint8_t subtype:4;
-    uint8_t type:2;
     uint8_t version:2;
+    uint8_t type:2;
+    uint8_t subtype:4;
     uint8_t flags;
 
     void init(uint16_t i){
@@ -100,6 +100,7 @@ typedef struct Frame_Control_Field{
         this->version = (i >> 8) & 0b11;
         this->flags = i & 0xFF;
     }
+
     bool isBeaconFrame(){
         if (this->type == MANAGEMENT_FRAME && this->subtype == BEACON_FRAME)
             return true;
