@@ -78,14 +78,33 @@ Mac::operator std::string() const {
 
 
 #pragma pack(push, 1)
+
+typedef struct Present_Flags{
+    uint8_t tsft:1;
+    uint8_t flags:1;
+    uint8_t rate:1;
+    uint8_t channel:1;
+    uint8_t fhss:1;
+    uint8_t dbm_antenna_sig:1;
+
+
+    uint8_t extra1:2;
+    uint8_t extra2[2];
+    uint8_t extra3:7;
+
+    uint8_t ext:1;
+}Present_Flags;
+
 typedef struct Rtap{
 
     uint8_t header_revision;
     uint8_t header_pad;
     uint16_t header_length;
-    uint32_t present_flags[2];
+    Present_Flags present_flags[2];
 
 } Rtap;
+
+
 
 
 typedef struct Frame_Control_Field{
@@ -158,15 +177,18 @@ typedef struct Ap_value{
     uint8_t nData;
     char enc[4];
     char ESSID[33];
+    unsigned int pwr;
 
     Ap_value(uint8_t Beacons,
              uint8_t nData,
              char* enc,
-             char* ESSID){
+             char* ESSID,
+             int pwr){
         this->Beacons = Beacons;
         this->nData = nData;
         strncpy((char*)&this->enc, enc, strlen(enc)+1);
         strncpy((char*)&this->ESSID, ESSID, strlen(ESSID)+1);
+        this->pwr = pwr;
     };
 
 }Ap_value;

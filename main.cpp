@@ -12,12 +12,11 @@
 #include <map>
 #include <pthread.h>
 #include <unistd.h>
-
-
+#include <vector>
 
 std::map<Mac, Ap_value> AP_List;
 
-
+std::map<Mac, std::vector<int>> PowerList;
 
 void usage() {
     printf("syntax: airodump <interface>\n");
@@ -47,11 +46,11 @@ void* consoleRefresh(void* p){
     while(true){
         sleep(1);
         system("clear");
-        printf("BSSID\t\t\tBeacons\t#Data\tENC\tESSID\n\n");
+        printf("BSSID\t\t\tBeacons\tPWR\t#Data\tENC\tESSID\n\n");
 
         for(auto i : AP_List){
-            printf("%s\t%u\t%u\t%s\t%s\n", std::string(i.first).c_str(),
-                   i.second.Beacons, i.second.nData, i.second.enc, i.second.ESSID);
+            printf("%s\t%u\t%d\t%u\t%s\t%s\n", std::string(i.first).c_str(),
+                   i.second.Beacons,i.second.pwr, i.second.nData, i.second.enc, i.second.ESSID);
         }
     }
 
@@ -67,7 +66,54 @@ void callback(u_char *user ,const struct pcap_pkthdr* header, const u_char* pkt_
 
     rtap_hdr = (struct Rtap*)pkt_data;
 
+    size_t offset=8 ;
 
+    int pwr = 0;
+
+    if(rtap_hdr->present_flags[0].ext)
+        offset+=4;
+
+    if(rtap_hdr->present_flags[0].tsft)
+        offset+=8;
+
+    if(rtap_hdr->present_flags[0].flags)
+        offset+=1;
+    if(rtap_hdr->present_flags[0].rate)
+        offset+=1;
+    if(rtap_hdr->present_flags[0].channel)
+        offset+=4;
+    if(rtap_hdr->present_flags[0].fhss)
+        offset+=1;
+
+    if(rtap_hdr->present_flags[0].dbm_antenna_sig )
+    {
+
+        uint8_t* p = (uint8_t*)pkt_data+offset;
+        pwr =  -((int)p[0]-1)^0xFF;
+    }
+
+
+    if(rtap_hdr->present_flags[0].ext ){
+
+        if(rtap_hdr->present_flags[1].tsft && !rtap_hdr->present_flags[0].tsft)
+            offset+=8;
+
+        if(rtap_hdr->present_flags[1].flags && !rtap_hdr->present_flags[0].flags)
+            offset+=1;
+        if(rtap_hdr->present_flags[1].rate && !rtap_hdr->present_flags[0].rate)
+            offset+=1;
+        if(rtap_hdr->present_flags[1].channel && !rtap_hdr->present_flags[0].channel)
+            offset+=4;
+        if(rtap_hdr->present_flags[1].fhss && !rtap_hdr->present_flags[0].fhss)
+            offset+=1;
+        if(rtap_hdr->present_flags[0].dbm_antenna_sig || rtap_hdr->present_flags[1].dbm_antenna_sig)
+        {
+
+            uint8_t* p = (uint8_t*)pkt_data+offset;
+            pwr =  -((int)p[0]-1)^0xFF;
+        }
+
+    }
 
     if(1){
 
@@ -82,19 +128,31 @@ void callback(u_char *user ,const struct pcap_pkthdr* header, const u_char* pkt_
 
         if(bf_hdr->frame_control_field.isBeaconFrame()){
 
+
+
             auto itr = AP_List.find(bf_hdr->mac3);
             if(itr != AP_List.end()){
                 itr->second.Beacons++;
+                if(pwr!=0) itr->second.pwr = pwr;
             }else{
 
                 Dot11_wlan* d11wl = (struct Dot11_wlan*)(bf_hdr+1);
                 char buf[33];
                 d11wl->getSSID(buf);
                 char enc[] = "";
-                Ap_value v(1, 0, enc, buf);
+                Ap_value v(1, 0, enc, buf, pwr);
                 AP_List.insert({bf_hdr->mac3,v});
             }
 
+
+            auto itr2 = PowerList.find(bf_hdr->mac2);
+            if(itr2 != PowerList.end()){
+                if(pwr!=0) itr2->second.push_back(pwr);
+            }else{
+
+                std::vector<int> v = {pwr};
+                if(pwr!=0) PowerList.insert({bf_hdr->mac2,v});
+            }
 
         }else if(df_hdr->frame_control_field.isDataFrame()){
 
@@ -102,34 +160,57 @@ void callback(u_char *user ,const struct pcap_pkthdr* header, const u_char* pkt_
                 auto itr = AP_List.find(df_hdr->mac1);
                 if(itr != AP_List.end()){
                     itr->second.nData++;
+                    if(pwr!=0) itr->second.pwr = pwr;
                 }else{
 
-                    Ap_value v(0, 1, (char*)"", (char*)"");
+                    Ap_value v(0, 1, (char*)"", (char*)"",pwr);
                     AP_List.insert({df_hdr->mac1,v});
                 }
             }
             auto itr = AP_List.find(df_hdr->mac2);
             if(itr != AP_List.end()){
                 itr->second.nData++;
+                if(pwr!=0) itr->second.pwr = pwr;
             }else{
 
-                Ap_value v(0, 1, (char*)"", (char*)"");
+                Ap_value v(0, 1, (char*)"", (char*)"",pwr);
                 AP_List.insert({df_hdr->mac2,v});
             }
+
+            auto itr2 = PowerList.find(bf_hdr->mac2);
+            if(itr2 != PowerList.end()){
+                if(pwr!=0) itr2->second.push_back(pwr);
+            }else{
+
+                std::vector<int> v = {pwr};
+                if(pwr!=0) PowerList.insert({bf_hdr->mac2,v});
+            }
+
 
 
         }else if(bf_hdr->frame_control_field.isProbeResponse()){
 
             auto itr = AP_List.find(bf_hdr->mac3);
-            if(itr == AP_List.end()){
+            if(itr != AP_List.end()){
+                if(pwr!=0) itr->second.pwr = pwr;
+            }else{
 
                 Dot11_wlan* d11wl = (struct Dot11_wlan*)(bf_hdr+1);
                 char buf[33];
                 d11wl->getSSID(buf);
                 char enc[] = "";
-                Ap_value v(0, 0, enc, buf);
+                Ap_value v(0, 0, enc, buf,pwr);
                 AP_List.insert({bf_hdr->mac3,v});
             }
+            auto itr2 = PowerList.find(bf_hdr->mac2);
+            if(itr2 != PowerList.end()){
+                if(pwr!=0) itr2->second.push_back(pwr);
+            }else{
+
+                std::vector<int> v = {pwr};
+                if(pwr!=0) PowerList.insert({bf_hdr->mac2,v});
+            }
+
         }
 
 
@@ -155,6 +236,8 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "pcap_open_live(%s) return nullptr - %s\n", argv[1], errbuf);
         return -1;
     }
+
+
 
 
     pthread_t p_thread;
